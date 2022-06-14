@@ -1,24 +1,35 @@
-
 node {
     try {
         notifyBuild('STARTED')
 
-        stage('Prepare code') {
-            echo 'do checkout stuff'
-        }
+        def templateName = 'gitbook-centos-docker'
 
-        stage('Testing') {
-            echo 'Testing'
-            echo 'Testing - publish coverage results'
-        }
+        openshift.withCluster() {
+            openshift.withProject() {
 
-        stage('Staging') {
-            echo 'Deploy Stage'
-        }
+                stage('build') {
+                    def builds = openshift.startBuild("${templateName}")
+                    timeout(5) {
+                      builds.untilEach(1) {
+                        return it.object().status.phase == "Complete"
+                      }
+                      builds.logs('-f')
+                    }
+                }
 
-        stage('Deploy') {
-            echo 'Deploy - Backend'
-            echo 'Deploy - Frontend'
+                stage('deploy') {
+                    def deployment = openshift.selector('deployment', "${templateName}")
+                    deployment.rollout().status()
+                }
+
+                stage('ask for promotion') {
+                    input id: 'Approve01', message: 'Wanna push to prod?????', ok: 'HANG TIGHT!'
+                }
+
+                stage('tag and promote') {
+                    openshift.tag("${templateName}:latest", "${templateName}:prod")
+                }
+            }
         }
 
   } catch (e) {
